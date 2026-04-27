@@ -1,7 +1,7 @@
 # 🎻 Orquestrador
 O sentinela de produtividade para desenvolvedores Linux.
 
-O Orquestrador não é apenas um software; é uma barreira técnica contra o comportamento impulsivo. Ele foi projetado para quem reconhece que o autocontrole muitas vezes falha e que o ambiente de trabalho precisa ser blindado por código, não apenas por força de vontade.
+O Orquestrador é uma barreira técnica contra o comportamento impulsivo. Ele foi projetado para quem reconhece que o autocontrole muitas vezes falha e que o ambiente de trabalho precisa ser blindado por código, não apenas por força de vontade.
 
 💡 A Inspiração
 O projeto nasceu de uma necessidade brutalmente sincera: eu estava perdendo tempo demais em redes sociais.
