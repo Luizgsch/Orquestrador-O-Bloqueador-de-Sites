@@ -1,0 +1,9 @@
+# Gradle
+.gradle/
+build/
+
+# Banco de dados local
+orquestrador.db
+
+# Configuração do sistema (ex.: unidades systemd)
+*.service
