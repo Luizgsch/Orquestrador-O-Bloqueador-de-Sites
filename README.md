@@ -1,20 +1,58 @@
 # 🎻 Orquestrador
 O sentinela de produtividade para desenvolvedores Linux.
 
-O Orquestrador é um serviço nativo (Daemon) escrito em Kotlin e Java, projetado para eliminar distrações de forma implacável diretamente no núcleo do sistema operacional.
+O Orquestrador não é apenas um software; é uma barreira técnica contra o comportamento impulsivo. Ele foi projetado para quem reconhece que o autocontrole muitas vezes falha e que o ambiente de trabalho precisa ser blindado por código, não apenas por força de vontade.
 
-🛡️ Funcionalidades
-NetworkGuard: Bloqueio massivo de URLs (75k+ domínios) via manipulação de /etc/hosts.
+💡 A Inspiração
+O projeto nasceu de uma necessidade brutalmente sincera: eu estava perdendo tempo demais em redes sociais.
 
-FileSentinel: Monitoramento recursivo em tempo real para detecção e destruição imediata de arquivos .apk.
+Como desenvolvedor, a facilidade de abrir uma nova aba para o X ou Reddit é um vício que destrói a produtividade. Percebi que bloqueadores comuns de navegador são fáceis demais de desativar. Eu precisava de algo que rodasse no nível do sistema (Kernel/Daemon), que fosse difícil de burlar e que agisse como um sentinela silencioso e implacável.
 
-Systemd Integration: Início automático no boot e mútua sobrevivência (auto-restart).
+O Orquestrador orquestra o sistema operacional para que ele trabalhe a favor do meu foco, eliminando distrações antes mesmo que elas cheguem à tela.
 
-SQLite Logging: Registro local de todas as tentativas de acesso bloqueadas.
+🛡️ Funcionalidades Core
+1. NetworkGuard (Bloqueio de Baixo Nível)
+Diferente de extensões de browser, o Orquestrador manipula o /etc/hosts e gerencia regras de rede.
 
-🚀 Como instalar
-Clone o repositório.
+Bloqueio em Massa: Injeta mais de 75.000 domínios de distração e conteúdo adulto.
 
-Gere o jar: ./gradlew shadowJar.
+Redirecionamento Local: Todo tráfego para redes sociais é enviado para 127.0.0.1.
 
-Execute o script de deploy: sudo install.sh.
+Resiliência: Mesmo em guia anônima ou diferentes navegadores, o bloqueio persiste.
+
+2. FileSentinel (Destruição de APKs)
+Uma camada extra de prevenção para evitar a "preparação" de distrações para o ambiente móvel.
+
+Vigilância Ativa: Monitora recursivamente a pasta de Downloads usando java.nio.file.WatchService.
+
+Zero Tolerância: Identifica e deleta arquivos .apk instantaneamente no momento em que o download é concluído.
+
+3. Persistência Nativa (Systemd)
+O software é integrado como um serviço do Linux.
+
+Auto-Boot: Inicia antes do login do usuário.
+
+Mútua Sobrevivência: Configurado para auto-reiniciar em 3 segundos caso o processo seja interrompido.
+
+🛠️ Stack Tecnológica
+Linguagem: Kotlin & Java (JVM)
+
+Banco de Dados: SQLite (para logs de tentativas de acesso)
+
+Gerenciamento de Serviço: Systemd (Linux)
+
+Build Tool: Gradle (ShadowJar)
+
+🚀 Instalação Rápida
+Build:
+
+Bash
+./gradlew shadowJar
+Deploy:
+Mova o JAR para /opt/orquestrador/ e configure o arquivo .service em /etc/systemd/system/.
+
+Ativação:
+
+Bash
+sudo systemctl enable --now orquestrador-bloqueador
+Aviso: Este projeto é uma ferramenta de autodomínio. Ele assume que você tem privilégios de sudo, mas que escolheu usá-los para construir sua própria disciplina.
