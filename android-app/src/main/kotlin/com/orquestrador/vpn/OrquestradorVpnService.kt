@@ -169,11 +169,15 @@ class OrquestradorVpnService : VpnService() {
         val prefs = VpnPreferences(this)
         if (prefs.getDesiredActive()) {
             showVpnRevokedNotification()
-            startForegroundService(
-                Intent(this, OrquestradorVpnService::class.java)
-                    .setAction(ACTION_START)
-                    .putExtra(EXTRA_ENABLED_CATEGORIES, prefs.getEnabledCategories().toTypedArray())
-            )
+            if (VpnService.prepare(this) != null) {
+                OverlayManager.show(this)
+            } else {
+                startForegroundService(
+                    Intent(this, OrquestradorVpnService::class.java)
+                        .setAction(ACTION_START)
+                        .putExtra(EXTRA_ENABLED_CATEGORIES, prefs.getEnabledCategories().toTypedArray())
+                )
+            }
         }
         super.onRevoke()
     }
