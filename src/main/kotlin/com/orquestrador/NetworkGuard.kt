@@ -14,6 +14,9 @@ object NetworkGuard {
 
     private const val START_MARKER = "# START GUARD"
     private const val END_MARKER = "# END GUARD"
+    private val SENSITIVE_TERMS_REGEX = Regex(
+        """(?i)(porn|sex|xxx|apk|manhwa|manhua|mang[aá])"""
+    )
 
     /** Lista StevenBlack “porn-only” (hosts no formato clássico). */
     const val DEFAULT_STEVENBLACK_PORN_HOSTS =
@@ -58,6 +61,35 @@ object NetworkGuard {
         "androidapksfree.com",
         "www.androidapksfree.com",
     )
+
+    val mangaInitialDomains: Set<String> = setOf(
+        "mangadex.org",
+        "mangaplus.shueisha.co.jp",
+        "webtoons.com",
+        "mangafire.to",
+        "mangahub.io",
+        "asurascans.com",
+        "bato.to",
+        "reaper-scans.com",
+        "flamescans.org",
+        "tapas.io",
+        "leiamanga.com",
+        "unionmangas.top",
+        "mangalivre.net",
+        "sussyscan.net",
+        "scanlationnerd.com",
+    )
+
+    fun classifyDomain(domain: String): String =
+        if (SENSITIVE_TERMS_REGEX.containsMatchIn(domain.lowercase())) "auto_blocked" else "default"
+
+    private fun expandWithWww(domain: String): List<String> {
+        return if (domain.startsWith("www.")) {
+            listOf(domain)
+        } else {
+            listOf(domain, "www.$domain")
+        }
+    }
 
     /** Palavras-chave → domínios extra (minúsculas). */
     private fun domainsForKeyword(keyword: String): Set<String> =
@@ -116,7 +148,7 @@ object NetworkGuard {
         val rows = ArrayList<Pair<String, String>>()
         for (d in manualDomains) {
             val n = d.trim().lowercase()
-            if (n.isNotEmpty()) rows.add(n to "default")
+            if (n.isNotEmpty()) rows.add(n to classifyDomain(n))
         }
         val url = blocklistUrl?.trim().orEmpty()
         if (url.isNotEmpty()) {
@@ -154,6 +186,42 @@ object NetworkGuard {
         val rows = buildBlockedRows(manualDomains, blocklistUrl, forbiddenKeywords, regexPatterns)
         db.replaceAll(rows)
         writeGuardBlock(db.listLiteralDomains())
+    }
+
+    /** Baixa e mescla StevenBlack porn-only hosts no DB (sem apagar dados existentes). */
+    fun downloadAndMergeStevenBlack(
+        db: BlockedDomainDatabase,
+        url: String = DEFAULT_STEVENBLACK_PORN_HOSTS,
+    ) {
+        try {
+            val domains = fetchHostsListDomains(url)
+            db.upsertDomains(domains.map { it to "remote_blocklist" })
+        } catch (e: Exception) {
+            System.err.println("[NetworkGuard] StevenBlack download falhou: ${e.message}. Usando DB existente.")
+        }
+    }
+
+    /** Aplica categoria ENTERTAINMENT_MANGA a domínios contendo palavras-chave (manga, manhwa, etc). */
+    fun applyMangaKeywords(
+        db: BlockedDomainDatabase,
+        keywords: Collection<String>,
+    ): Int {
+        val fromDb = db.findDomainsContaining(keywords)
+        val fromHostsFile = parseHostsFileDomains(readHosts())
+            .filter { d -> keywords.any { kw -> d.contains(kw.lowercase()) } }
+        val toUpsert = (fromDb.map { it.first } + fromHostsFile)
+            .distinct()
+            .map { it to BlockedDomainDatabase.CATEGORY_ENTERTAINMENT_MANGA }
+        db.upsertDomains(toUpsert)
+        writeGuardBlock(db.listLiteralDomains())
+        return toUpsert.size
+    }
+
+    /** Popula DB com lista inicial de sites de mangá globais e brasileiros. */
+    fun seedMangaDomains(db: BlockedDomainDatabase) {
+        db.upsertDomains(
+            mangaInitialDomains.map { it to BlockedDomainDatabase.CATEGORY_ENTERTAINMENT_MANGA }
+        )
     }
 
     fun writeGuardBlock(domains: Collection<String>) {
@@ -217,9 +285,12 @@ object NetworkGuard {
         for (d in domains) {
             val normalized = d.trim()
             if (normalized.isEmpty()) continue
-            val key = normalized.lowercase()
-            if (key !in unique) {
-                unique[key] = normalized
+            val expanded = expandWithWww(normalized)
+            for (exp in expanded) {
+                val key = exp.lowercase()
+                if (key !in unique) {
+                    unique[key] = exp
+                }
             }
         }
         return buildString {

@@ -1,10 +1,12 @@
 import com.github.jengelman.gradle.plugins.shadow.tasks.ShadowJar
 
 plugins {
-    kotlin("jvm") version "1.9.25"
+    kotlin("jvm") version "1.9.25" apply false
+    kotlin("android") version "1.9.25" apply false
+    id("com.android.application") version "8.3.0" apply false
+    id("com.github.johnrengelman.shadow") version "8.1.1"
     java
     application
-    id("com.github.johnrengelman.shadow") version "8.1.1"
 }
 
 group = "com.orquestrador"
@@ -15,7 +17,7 @@ repositories {
 }
 
 dependencies {
-    implementation(kotlin("stdlib"))
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:1.9.25")
     implementation("org.xerial:sqlite-jdbc:3.46.1.0")
     implementation("com.google.code.gson:gson:2.11.0")
 }
