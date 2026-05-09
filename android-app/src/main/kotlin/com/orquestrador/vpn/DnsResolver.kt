@@ -118,26 +118,41 @@ object DnsResolver {
     }
 
     fun forwardToUpstream(query: ByteArray): ByteArray? {
+        var lastError: Exception? = null
+
         for (upstreamHost in dnsServers) {
-            try {
-                val sock = getOrCreateSocket() ?: return null
+            for (attempt in 1..2) {
+                try {
+                    val sock = getOrCreateSocket() ?: continue
 
-                val dest = InetAddress.getByName(upstreamHost)
-                sock.send(DatagramPacket(query, query.size, dest, UPSTREAM_PORT))
+                    val dest = InetAddress.getByName(upstreamHost)
+                    sock.send(DatagramPacket(query, query.size, dest, UPSTREAM_PORT))
 
-                val buf = ByteArray(MAX_DNS_RESPONSE)
-                val resp = DatagramPacket(buf, buf.size)
-                sock.receive(resp)
+                    val buf = ByteArray(MAX_DNS_RESPONSE)
+                    val resp = DatagramPacket(buf, buf.size)
 
-                return buf.copyOf(resp.length)
-            } catch (_: Exception) {
-                socketLock.write {
-                    cachedSocket?.close()
-                    cachedSocket = null
+                    try {
+                        sock.receive(resp)
+                        if (resp.length > 0) {
+                            return buf.copyOf(resp.length)
+                        }
+                    } catch (timeoutEx: java.net.SocketTimeoutException) {
+                        lastError = timeoutEx
+                        if (attempt < 2) continue
+                        throw timeoutEx
+                    }
+                } catch (ex: Exception) {
+                    lastError = ex
+                    socketLock.write {
+                        cachedSocket?.close()
+                        cachedSocket = null
+                    }
+                    if (attempt < 2) continue
+                    break
                 }
-                continue
             }
         }
+
         return null
     }
 
