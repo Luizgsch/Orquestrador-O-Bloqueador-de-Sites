@@ -28,15 +28,25 @@ class OrquestradorVpnService : VpnService() {
         const val ACTION_STOP = "com.orquestrador.vpn.STOP"
         const val EXTRA_ENABLED_CATEGORIES = "enabled_categories"
         const val CHANNEL_ID = "vpn_service"
+        const val CHANNEL_ALERT_ID = "vpn_alert"
         const val NOTIF_ID = 1
+        const val NOTIF_ALERT_ID = 2
+        @Volatile var isRunning: Boolean = false
         private const val VPN_ADDRESS = "10.0.0.2"
         private const val FAKE_DNS_IP = "10.0.0.1"
+        val MANGA_PATTERNS = listOf(
+            "manga", "mangá", "manhwa", "manhua", "scan", "raws",
+            "readmanga", "otaku", "chapmanganato"
+        )
+        val SUSPICIOUS_TLDS = listOf(".xyz", ".top", ".fun")
+        const val HEURISTIC_CATEGORY = "HEURISTIC_MANGA"
     }
 
     private var tunFd: ParcelFileDescriptor? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var enabledCategories: Set<BlockList.Category> = emptySet()
     private var allDomains: Map<String, String> = emptyMap()
+    private var db: BlockedDomainDatabase? = null
 
     override fun onCreate() {
         super.onCreate()
@@ -46,6 +56,7 @@ class OrquestradorVpnService : VpnService() {
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_STOP -> {
+                VpnPreferences(this).save(false, emptySet())
                 stopVpn()
                 return START_NOT_STICKY
             }
@@ -56,14 +67,15 @@ class OrquestradorVpnService : VpnService() {
             ?.toSet() ?: emptySet()
         enabledCategories = cats
 
-        allDomains = BlockedDomainDatabase(this).run {
-            val domains = getAllDomains()
-            close()
-            domains
-        }
+        VpnPreferences(this).save(true, cats.map { it.name }.toSet())
+
+        val database = BlockedDomainDatabase(this)
+        db = database
+        allDomains = database.getAllDomains()
 
         startForeground(NOTIF_ID, buildNotification())
         startVpn()
+        isRunning = true
         return START_STICKY
     }
 
@@ -101,10 +113,14 @@ class OrquestradorVpnService : VpnService() {
 
             val name = DnsResolver.extractDnsName(dnsPacket.dnsPayload) ?: continue
 
-            val responsePayload = if (isBlockedDomain(name)) {
-                DnsResolver.buildBlockResponse(dnsPacket.dnsPayload)
-            } else {
-                DnsResolver.forwardToUpstream(dnsPacket.dnsPayload) ?: DnsResolver.buildServfailResponse(dnsPacket.dnsPayload)
+            val responsePayload = when {
+                isBlockedDomain(name) -> DnsResolver.buildBlockResponse(dnsPacket.dnsPayload)
+                isHeuristicManga(name) -> {
+                    scope.launch { db?.upsertDomain(name.lowercase(), HEURISTIC_CATEGORY) }
+                    DnsResolver.buildBlockResponse(dnsPacket.dnsPayload)
+                }
+                else -> DnsResolver.forwardToUpstream(dnsPacket.dnsPayload)
+                    ?: DnsResolver.buildServfailResponse(dnsPacket.dnsPayload)
             }
 
             val responsePacket = buildIpUdpPacket(
@@ -128,13 +144,36 @@ class OrquestradorVpnService : VpnService() {
         return category in enabledCategories.map { it.name }
     }
 
+    private fun isHeuristicManga(domain: String): Boolean {
+        val lower = domain.lowercase()
+        if (MANGA_PATTERNS.any { lower.contains(it) }) return true
+        if (SUSPICIOUS_TLDS.any { lower.endsWith(it) }) return true
+        return false
+    }
+
     private fun stopVpn() {
+        isRunning = false
         scope.cancel()
         tunFd?.close()
         tunFd = null
+        db?.close()
+        db = null
         DnsResolver.closeSocket()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
+    }
+
+    override fun onRevoke() {
+        val prefs = VpnPreferences(this)
+        if (prefs.getDesiredActive()) {
+            showVpnRevokedNotification()
+            startForegroundService(
+                Intent(this, OrquestradorVpnService::class.java)
+                    .setAction(ACTION_START)
+                    .putExtra(EXTRA_ENABLED_CATEGORIES, prefs.getEnabledCategories().toTypedArray())
+            )
+        }
+        super.onRevoke()
     }
 
     override fun onDestroy() {
@@ -143,9 +182,32 @@ class OrquestradorVpnService : VpnService() {
     }
 
     private fun createNotificationChannel() {
-        val channel = NotificationChannel(CHANNEL_ID, "VPN", NotificationManager.IMPORTANCE_LOW)
-        val manager = getSystemService(NotificationManager::class.java)
-        manager?.createNotificationChannel(channel)
+        val manager = getSystemService(NotificationManager::class.java) ?: return
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ID, "VPN", NotificationManager.IMPORTANCE_LOW)
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(CHANNEL_ALERT_ID, "VPN Alertas", NotificationManager.IMPORTANCE_HIGH)
+        )
+    }
+
+    private fun showVpnRevokedNotification() {
+        val mainIntent = Intent(this, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = PendingIntent.getActivity(
+            this, 1, mainIntent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val notification = Notification.Builder(this, CHANNEL_ALERT_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("Orquestrador desativado")
+            .setContentText("VPN foi desligada. Toque para reativar.")
+            .setContentIntent(pendingIntent)
+            .setFullScreenIntent(pendingIntent, true)
+            .setAutoCancel(true)
+            .build()
+        getSystemService(NotificationManager::class.java)?.notify(NOTIF_ALERT_ID, notification)
     }
 
     private fun buildNotification(): Notification {

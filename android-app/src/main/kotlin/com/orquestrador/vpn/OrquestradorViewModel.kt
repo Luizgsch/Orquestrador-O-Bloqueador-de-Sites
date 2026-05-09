@@ -21,6 +21,21 @@ class OrquestradorViewModel(app: Application) : AndroidViewModel(app) {
     private val _state = MutableStateFlow(VpnUiState())
     val state: StateFlow<VpnUiState> = _state.asStateFlow()
 
+    init {
+        val prefs = VpnPreferences(app)
+        val savedCats = prefs.getEnabledCategories()
+        if (savedCats.isNotEmpty()) {
+            _state.value = _state.value.copy(
+                isVpnRunning = OrquestradorVpnService.isRunning,
+                socialEnabled = BlockList.Category.SOCIAL.name in savedCats,
+                adultEnabled = BlockList.Category.ADULT.name in savedCats,
+                mangaEnabled = BlockList.Category.MANGA.name in savedCats,
+            )
+        } else {
+            _state.value = _state.value.copy(isVpnRunning = OrquestradorVpnService.isRunning)
+        }
+    }
+
     fun onVpnToggle(enabled: Boolean) {
         if (enabled) {
             val permIntent = VpnService.prepare(getApplication())

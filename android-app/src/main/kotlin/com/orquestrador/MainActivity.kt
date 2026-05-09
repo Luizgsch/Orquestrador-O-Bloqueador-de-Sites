@@ -19,6 +19,7 @@ import com.orquestrador.ui.OrquestradorScreen
 import com.orquestrador.ui.theme.Obsidian
 import com.orquestrador.ui.theme.OrquestradorTheme
 import com.orquestrador.vpn.OrquestradorViewModel
+import com.orquestrador.vpn.VpnGuardWorker
 
 class MainActivity : ComponentActivity() {
 
@@ -34,6 +35,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         BlockListInitializer.initializeDatabase(this)
+        VpnGuardWorker.schedule(this)
         setContent {
             OrquestradorTheme {
                 Surface(
