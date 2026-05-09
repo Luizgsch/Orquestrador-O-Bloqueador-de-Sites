@@ -12,7 +12,7 @@ object DnsResolver {
 
     private val dnsServers = listOf("8.8.8.8", "1.1.1.1")
     private const val UPSTREAM_PORT = 53
-    private const val DNS_TIMEOUT_MS = 2_000
+    private const val DNS_TIMEOUT_MS = 500
     private const val MAX_DNS_RESPONSE = 512
 
     private var cachedSocket: DatagramSocket? = null
@@ -54,6 +54,49 @@ object DnsResolver {
             labels.joinToString(".")
         } catch (_: Exception) {
             null
+        }
+    }
+
+    fun buildServfailResponse(query: ByteArray): ByteArray {
+        return try {
+            val buf = ByteBuffer.wrap(query)
+            if (query.size < 12) return query
+
+            val txid = ByteArray(2)
+            buf.position(0)
+            buf.get(txid)
+
+            val response = mutableListOf<Byte>()
+            response.addAll(txid.toList())
+            response.add(0x81.toByte())
+            response.add(0x82.toByte())
+            response.add(0x00)
+            response.add(0x01)
+            response.add(0x00)
+            response.add(0x00)
+            response.add(0x00)
+            response.add(0x00)
+            response.add(0x00)
+            response.add(0x00)
+
+            buf.position(12)
+            while (buf.hasRemaining() && response.size < 512) {
+                val b = buf.get()
+                response.add(b)
+                if (b == 0x00.toByte()) {
+                    if (buf.remaining() >= 4) {
+                        response.add(buf.get())
+                        response.add(buf.get())
+                        response.add(buf.get())
+                        response.add(buf.get())
+                    }
+                    break
+                }
+            }
+
+            response.toByteArray()
+        } catch (_: Exception) {
+            query
         }
     }
 
@@ -118,38 +161,32 @@ object DnsResolver {
     }
 
     fun forwardToUpstream(query: ByteArray): ByteArray? {
-        var lastError: Exception? = null
-
         for (upstreamHost in dnsServers) {
-            for (attempt in 1..2) {
-                try {
-                    val sock = getOrCreateSocket() ?: continue
+            try {
+                val sock = getOrCreateSocket() ?: continue
 
-                    val dest = InetAddress.getByName(upstreamHost)
-                    sock.send(DatagramPacket(query, query.size, dest, UPSTREAM_PORT))
+                val dest = InetAddress.getByName(upstreamHost)
+                sock.send(DatagramPacket(query, query.size, dest, UPSTREAM_PORT))
 
-                    val buf = ByteArray(MAX_DNS_RESPONSE)
-                    val resp = DatagramPacket(buf, buf.size)
+                val buf = ByteArray(MAX_DNS_RESPONSE)
+                val resp = DatagramPacket(buf, buf.size)
 
-                    try {
-                        sock.receive(resp)
-                        if (resp.length > 0) {
-                            return buf.copyOf(resp.length)
-                        }
-                    } catch (timeoutEx: java.net.SocketTimeoutException) {
-                        lastError = timeoutEx
-                        if (attempt < 2) continue
-                        throw timeoutEx
-                    }
-                } catch (ex: Exception) {
-                    lastError = ex
-                    socketLock.write {
-                        cachedSocket?.close()
-                        cachedSocket = null
-                    }
-                    if (attempt < 2) continue
-                    break
+                sock.receive(resp)
+                if (resp.length > 0) {
+                    return buf.copyOf(resp.length)
                 }
+            } catch (timeoutEx: java.net.SocketTimeoutException) {
+                socketLock.write {
+                    cachedSocket?.close()
+                    cachedSocket = null
+                }
+                continue
+            } catch (ex: Exception) {
+                socketLock.write {
+                    cachedSocket?.close()
+                    cachedSocket = null
+                }
+                continue
             }
         }
 

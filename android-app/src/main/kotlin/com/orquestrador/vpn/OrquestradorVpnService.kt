@@ -106,7 +106,7 @@ class OrquestradorVpnService : VpnService() {
             val responsePayload = if (isBlockedDomain(name)) {
                 DnsResolver.buildBlockResponse(dnsPacket.dnsPayload)
             } else {
-                DnsResolver.forwardToUpstream(dnsPacket.dnsPayload) ?: continue
+                DnsResolver.forwardToUpstream(dnsPacket.dnsPayload) ?: DnsResolver.buildServfailResponse(dnsPacket.dnsPayload)
             }
 
             val responsePacket = buildIpUdpPacket(
