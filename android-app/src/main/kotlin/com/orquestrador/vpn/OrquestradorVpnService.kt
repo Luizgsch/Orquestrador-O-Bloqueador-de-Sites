@@ -9,6 +9,7 @@ import android.net.VpnService
 import android.os.ParcelFileDescriptor
 import com.orquestrador.MainActivity
 import com.orquestrador.db.BlockedDomainDatabase
+import com.orquestrador.overlay.OverlayManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -76,6 +77,7 @@ class OrquestradorVpnService : VpnService() {
         startForeground(NOTIF_ID, buildNotification())
         startVpn()
         isRunning = true
+        OverlayManager.dismiss(this)
         return START_STICKY
     }
 

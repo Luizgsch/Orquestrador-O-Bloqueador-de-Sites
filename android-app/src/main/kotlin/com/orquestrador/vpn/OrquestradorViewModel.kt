@@ -14,6 +14,7 @@ data class VpnUiState(
     val adultEnabled: Boolean = true,
     val mangaEnabled: Boolean = false,
     val needsVpnPermission: Boolean = false,
+    val needsOverlayPermission: Boolean = false,
 )
 
 class OrquestradorViewModel(app: Application) : AndroidViewModel(app) {
@@ -52,6 +53,14 @@ class OrquestradorViewModel(app: Application) : AndroidViewModel(app) {
     fun onVpnPermissionResult(granted: Boolean) {
         _state.value = _state.value.copy(needsVpnPermission = false)
         if (granted) startVpnService()
+    }
+
+    fun onOverlayPermissionStatus(granted: Boolean) {
+        _state.value = _state.value.copy(needsOverlayPermission = !granted)
+    }
+
+    fun onOverlayPermissionRequested() {
+        _state.value = _state.value.copy(needsOverlayPermission = false)
     }
 
     fun onCategoryToggle(category: BlockList.Category, enabled: Boolean) {

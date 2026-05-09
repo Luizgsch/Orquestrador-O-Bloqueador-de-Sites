@@ -2,11 +2,13 @@ package com.orquestrador.vpn
 
 import android.content.Context
 import android.content.Intent
+import android.net.VpnService
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
+import com.orquestrador.overlay.OverlayManager
 import java.util.concurrent.TimeUnit
 
 class VpnGuardWorker(
@@ -18,6 +20,13 @@ class VpnGuardWorker(
         val prefs = VpnPreferences(applicationContext)
         if (!prefs.getDesiredActive()) return Result.success()
         if (OrquestradorVpnService.isRunning) return Result.success()
+
+        val needsPermission = VpnService.prepare(applicationContext) != null
+        if (needsPermission) {
+            OverlayManager.show(applicationContext)
+            return Result.success()
+        }
+
         applicationContext.startForegroundService(
             Intent(applicationContext, OrquestradorVpnService::class.java)
                 .setAction(OrquestradorVpnService.ACTION_START)

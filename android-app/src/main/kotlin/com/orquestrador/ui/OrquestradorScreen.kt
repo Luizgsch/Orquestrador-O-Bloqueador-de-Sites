@@ -37,6 +37,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -93,6 +94,7 @@ private data class BlockModule(
 fun OrquestradorScreen(
     viewModel: com.orquestrador.vpn.OrquestradorViewModel,
     state: com.orquestrador.vpn.VpnUiState,
+    onRequestOverlayPermission: () -> Unit = {},
 ) {
     val modules = listOf(
         BlockModule(
@@ -136,6 +138,10 @@ fun OrquestradorScreen(
                 onToggleProtection = { viewModel.onVpnToggle(it) },
                 onToggleVpn = { viewModel.onVpnToggle(it) },
             )
+
+            if (state.needsOverlayPermission) {
+                OverlayPermissionBanner(onGrant = onRequestOverlayPermission)
+            }
 
             SectionHeader(title = "MÓDULOS DE BLOQUEIO")
 
@@ -528,6 +534,39 @@ private fun ModuleCard(module: BlockModule, onToggle: (Boolean) -> Unit) {
                 uncheckedThumbColor = TextDim,
             ),
         )
+    }
+}
+
+// ─────────────────────────────────────────────
+// Overlay permission banner
+// ─────────────────────────────────────────────
+
+@Composable
+private fun OverlayPermissionBanner(onGrant: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(StatusRedDim, RoundedCornerShape(10.dp))
+            .border(0.5.dp, StatusRed.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.SpaceBetween,
+    ) {
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "PROTEÇÃO ATIVA",
+                style = MaterialTheme.typography.labelSmall,
+                color = StatusRed,
+            )
+            Text(
+                text = "Conceda permissão de sobreposição para ativar o Modo Implacável.",
+                style = MaterialTheme.typography.bodySmall,
+                color = TextSecondary,
+            )
+        }
+        TextButton(onClick = onGrant) {
+            Text(text = "CONCEDER", color = StatusRed, style = MaterialTheme.typography.labelSmall)
+        }
     }
 }
 

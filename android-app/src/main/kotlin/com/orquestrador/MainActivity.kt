@@ -1,8 +1,10 @@
 package com.orquestrador
 
 import android.content.Intent
+import android.net.Uri
 import android.net.VpnService
 import android.os.Bundle
+import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -23,6 +25,10 @@ import com.orquestrador.vpn.VpnGuardWorker
 
 class MainActivity : ComponentActivity() {
 
+    companion object {
+        const val ACTION_REACTIVATE_VPN = "com.orquestrador.ACTION_REACTIVATE_VPN"
+    }
+
     private val viewModel: OrquestradorViewModel by viewModels()
 
     private val vpnPermissionLauncher = registerForActivityResult(
@@ -31,11 +37,19 @@ class MainActivity : ComponentActivity() {
         viewModel.onVpnPermissionResult(result.resultCode == RESULT_OK)
     }
 
+    private val overlayPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        viewModel.onOverlayPermissionStatus(Settings.canDrawOverlays(this))
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
         BlockListInitializer.initializeDatabase(this)
         VpnGuardWorker.schedule(this)
+        viewModel.onOverlayPermissionStatus(Settings.canDrawOverlays(this))
+        handleIntent(intent)
         setContent {
             OrquestradorTheme {
                 Surface(
@@ -52,9 +66,38 @@ class MainActivity : ComponentActivity() {
                         }
                     }
 
-                    OrquestradorScreen(viewModel = viewModel, state = state)
+                    LaunchedEffect(state.needsOverlayPermission) {
+                        if (state.needsOverlayPermission) {
+                            overlayPermissionLauncher.launch(
+                                Intent(
+                                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                                    Uri.parse("package:$packageName"),
+                                )
+                            )
+                            viewModel.onOverlayPermissionRequested()
+                        }
+                    }
+
+                    OrquestradorScreen(
+                        viewModel = viewModel,
+                        state = state,
+                        onRequestOverlayPermission = {
+                            viewModel.onOverlayPermissionStatus(false)
+                        },
+                    )
                 }
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        handleIntent(intent)
+    }
+
+    private fun handleIntent(intent: Intent?) {
+        if (intent?.action == ACTION_REACTIVATE_VPN) {
+            viewModel.onVpnToggle(true)
         }
     }
 }
