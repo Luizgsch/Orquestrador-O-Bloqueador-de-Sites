@@ -29,6 +29,7 @@ import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Security
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material.icons.outlined.WifiOff
 import androidx.compose.material3.HorizontalDivider
@@ -44,6 +45,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.scale
@@ -72,6 +74,7 @@ import com.orquestrador.ui.theme.SwitchTrackOff
 import com.orquestrador.ui.theme.TextDim
 import com.orquestrador.ui.theme.TextPrimary
 import com.orquestrador.ui.theme.TextSecondary
+import com.orquestrador.security.SecurityPreferences
 
 // ─────────────────────────────────────────────
 // Screen state model
@@ -95,7 +98,27 @@ fun OrquestradorScreen(
     viewModel: com.orquestrador.vpn.OrquestradorViewModel,
     state: com.orquestrador.vpn.VpnUiState,
     onRequestOverlayPermission: () -> Unit = {},
+    onNavigateToSecurity: () -> Unit = {},
 ) {
+    val context = LocalContext.current
+    val secPrefs = remember { SecurityPreferences(context) }
+    var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
+
+    fun withPin(action: () -> Unit) {
+        if (secPrefs.isPinSet()) pendingAction = action else action()
+    }
+
+    pendingAction?.let {
+        PasswordEntryDialog(
+            onConfirm = { pin ->
+                val ok = secPrefs.verifyPin(pin)
+                if (ok) { it(); pendingAction = null }
+                ok
+            },
+            onDismiss = { pendingAction = null },
+        )
+    }
+
     val modules = listOf(
         BlockModule(
             "Redes Sociais", "Instagram, TikTok, X, YouTube",
@@ -135,8 +158,8 @@ fun OrquestradorScreen(
             ProtectionCard(
                 isActive = state.isVpnRunning,
                 isVpnConnected = state.isVpnRunning,
-                onToggleProtection = { viewModel.onVpnToggle(it) },
-                onToggleVpn = { viewModel.onVpnToggle(it) },
+                onToggleProtection = { enabled -> withPin { viewModel.onVpnToggle(enabled) } },
+                onToggleVpn = { enabled -> withPin { viewModel.onVpnToggle(enabled) } },
             )
 
             if (state.needsOverlayPermission) {
@@ -149,10 +172,14 @@ fun OrquestradorScreen(
                 ModuleCard(
                     module = module,
                     onToggle = { enabled ->
-                        viewModel.onCategoryToggle(module.category, enabled)
+                        withPin { viewModel.onCategoryToggle(module.category, enabled) }
                     },
                 )
             }
+
+            Spacer(Modifier.height(8.dp))
+
+            SecurityNavButton(onClick = onNavigateToSecurity)
         }
     }
 }
@@ -566,6 +593,43 @@ private fun OverlayPermissionBanner(onGrant: () -> Unit) {
         }
         TextButton(onClick = onGrant) {
             Text(text = "CONCEDER", color = StatusRed, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+// ─────────────────────────────────────────────
+// Security nav button
+// ─────────────────────────────────────────────
+
+@Composable
+private fun SecurityNavButton(onClick: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(0.5.dp, CardBorderIdle, RoundedCornerShape(12.dp))
+            .background(CardSurface, RoundedCornerShape(12.dp))
+            .padding(horizontal = 16.dp, vertical = 12.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Settings,
+                contentDescription = null,
+                tint = TextDim,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = "Segurança",
+                style = MaterialTheme.typography.titleMedium,
+                color = TextSecondary,
+            )
+        }
+        TextButton(onClick = onClick) {
+            Text("Configurar PIN", color = AccentSocial, style = MaterialTheme.typography.labelSmall)
         }
     }
 }

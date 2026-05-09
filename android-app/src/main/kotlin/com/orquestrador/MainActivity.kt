@@ -16,8 +16,12 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import com.orquestrador.db.BlockListInitializer
 import com.orquestrador.ui.OrquestradorScreen
+import com.orquestrador.ui.SecurityScreen
 import com.orquestrador.ui.theme.Obsidian
 import com.orquestrador.ui.theme.OrquestradorTheme
 import com.orquestrador.vpn.OrquestradorViewModel
@@ -57,6 +61,12 @@ class MainActivity : ComponentActivity() {
                     color = Obsidian,
                 ) {
                     val state by viewModel.state.collectAsState()
+                    var showSecurity by remember { mutableStateOf(false) }
+
+                    if (showSecurity) {
+                        SecurityScreen(onBack = { showSecurity = false })
+                        return@Surface
+                    }
 
                     LaunchedEffect(state.needsVpnPermission) {
                         if (state.needsVpnPermission) {
@@ -84,6 +94,7 @@ class MainActivity : ComponentActivity() {
                         onRequestOverlayPermission = {
                             viewModel.onOverlayPermissionStatus(false)
                         },
+                        onNavigateToSecurity = { showSecurity = true },
                     )
                 }
             }
