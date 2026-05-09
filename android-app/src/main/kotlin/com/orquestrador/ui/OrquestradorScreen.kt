@@ -104,8 +104,8 @@ fun OrquestradorScreen(
     val secPrefs = remember { SecurityPreferences(context) }
     var pendingAction by remember { mutableStateOf<(() -> Unit)?>(null) }
 
-    fun withPin(action: () -> Unit) {
-        if (secPrefs.isPinSet()) pendingAction = action else action()
+    fun withPin(enabling: Boolean, action: () -> Unit) {
+        if (!enabling && secPrefs.isPinSet()) pendingAction = action else action()
     }
 
     pendingAction?.let {
@@ -158,8 +158,8 @@ fun OrquestradorScreen(
             ProtectionCard(
                 isActive = state.isVpnRunning,
                 isVpnConnected = state.isVpnRunning,
-                onToggleProtection = { enabled -> withPin { viewModel.onVpnToggle(enabled) } },
-                onToggleVpn = { enabled -> withPin { viewModel.onVpnToggle(enabled) } },
+                onToggleProtection = { enabled -> withPin(enabled) { viewModel.onVpnToggle(enabled) } },
+                onToggleVpn = { enabled -> withPin(enabled) { viewModel.onVpnToggle(enabled) } },
             )
 
             if (state.needsOverlayPermission) {
@@ -172,7 +172,7 @@ fun OrquestradorScreen(
                 ModuleCard(
                     module = module,
                     onToggle = { enabled ->
-                        withPin { viewModel.onCategoryToggle(module.category, enabled) }
+                        withPin(enabled) { viewModel.onCategoryToggle(module.category, enabled) }
                     },
                 )
             }
