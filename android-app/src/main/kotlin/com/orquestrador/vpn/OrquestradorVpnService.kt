@@ -30,8 +30,7 @@ class OrquestradorVpnService : VpnService() {
         const val CHANNEL_ID = "vpn_service"
         const val NOTIF_ID = 1
         private const val VPN_ADDRESS = "10.0.0.2"
-        private const val VPN_ROUTE = "0.0.0.0"
-        private const val VPN_PREFIX = 0
+        private const val FAKE_DNS_IP = "10.0.0.1"
     }
 
     private var tunFd: ParcelFileDescriptor? = null
@@ -72,10 +71,9 @@ class OrquestradorVpnService : VpnService() {
         tunFd?.close()
         tunFd = Builder()
             .setSession("Orquestrador VPN")
-            .addAddress(VPN_ADDRESS, 32)
-            .addDnsServer("8.8.8.8")
-            .addDnsServer("1.1.1.1")
-            .addRoute("0.0.0.0", 0)
+            .addAddress(VPN_ADDRESS, 24)
+            .addDnsServer(FAKE_DNS_IP)
+            .addRoute(FAKE_DNS_IP, 32)
             .setBlocking(false)
             .establish() ?: run {
             stopSelf()
