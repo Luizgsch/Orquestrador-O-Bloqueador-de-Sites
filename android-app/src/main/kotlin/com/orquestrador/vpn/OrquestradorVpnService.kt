@@ -27,11 +27,16 @@ class OrquestradorVpnService : VpnService() {
     companion object {
         const val ACTION_START = "com.orquestrador.vpn.START"
         const val ACTION_STOP = "com.orquestrador.vpn.STOP"
+        const val ACTION_ADD_MANUAL_BLOCK = "com.orquestrador.vpn.ADD_MANUAL_BLOCK"
         const val EXTRA_ENABLED_CATEGORIES = "enabled_categories"
+        const val EXTRA_MANUAL_DOMAIN = "manual_domain"
+        const val MANUAL_CATEGORY = "MANUAL"
         const val CHANNEL_ID = "vpn_service"
         const val CHANNEL_ALERT_ID = "vpn_alert"
+        const val CHANNEL_ADULT_BLOCK_ID = "vpn_adult_block"
         const val NOTIF_ID = 1
         const val NOTIF_ALERT_ID = 2
+        const val NOTIF_ADULT_BLOCK_ID = 3
         @Volatile var isRunning: Boolean = false
         private const val VPN_ADDRESS = "10.0.0.2"
         private const val FAKE_DNS_IP = "10.0.0.1"
@@ -41,13 +46,20 @@ class OrquestradorVpnService : VpnService() {
         )
         val SUSPICIOUS_TLDS = listOf(".xyz", ".top", ".fun")
         const val HEURISTIC_CATEGORY = "HEURISTIC_MANGA"
+        val ADULT_HEURISTIC_TERMS = listOf(
+            "porn", "sex", "xxx", "xvideos", "redtube", "pornhub",
+            "adult", "hentai", "nsfw", "erotic", "camgirls", "brazzers", "xhamster"
+        )
+        val ADULT_TLDS = listOf(".xxx", ".sex", ".adult", ".porn")
     }
 
     private var tunFd: ParcelFileDescriptor? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var enabledCategories: Set<BlockList.Category> = emptySet()
-    private var allDomains: Map<String, String> = emptyMap()
+    private var allDomains: MutableMap<String, String> = mutableMapOf()
     private var db: BlockedDomainDatabase? = null
+    private var globalAdultCache: HashSet<String>? = null
+    private var lastAdultNotifTime = 0L
 
     override fun onCreate() {
         super.onCreate()
@@ -61,6 +73,13 @@ class OrquestradorVpnService : VpnService() {
                 stopVpn()
                 return START_NOT_STICKY
             }
+            ACTION_ADD_MANUAL_BLOCK -> {
+                val domain = intent.getStringExtra(EXTRA_MANUAL_DOMAIN)?.trim()?.lowercase()
+                    ?: return START_STICKY
+                db?.addManualBlock(domain)
+                allDomains[domain] = MANUAL_CATEGORY
+                return START_STICKY
+            }
         }
 
         val cats = intent?.getStringArrayExtra(EXTRA_ENABLED_CATEGORIES)
@@ -72,7 +91,16 @@ class OrquestradorVpnService : VpnService() {
 
         val database = BlockedDomainDatabase(this)
         db = database
-        allDomains = database.getAllDomains()
+        allDomains = database.getAllDomains().toMutableMap()
+        database.getManualBlocks().forEach { allDomains[it] = MANUAL_CATEGORY }
+
+        if (BlockList.Category.ADULT in enabledCategories) {
+            scope.launch {
+                globalAdultCache = database.getAdultGlobalDomains()
+            }
+        } else {
+            globalAdultCache = null
+        }
 
         startForeground(NOTIF_ID, buildNotification())
         startVpn()
@@ -86,8 +114,8 @@ class OrquestradorVpnService : VpnService() {
         tunFd = Builder()
             .setSession("Orquestrador VPN")
             .addAddress(VPN_ADDRESS, 24)
+            .addRoute("0.0.0.0", 0)
             .addDnsServer(FAKE_DNS_IP)
-            .addRoute(FAKE_DNS_IP, 32)
             .setBlocking(false)
             .establish() ?: run {
             stopSelf()
@@ -117,12 +145,23 @@ class OrquestradorVpnService : VpnService() {
 
             val responsePayload = when {
                 isBlockedDomain(name) -> DnsResolver.buildBlockResponse(dnsPacket.dnsPayload)
+                isAdultBlocked(name) -> {
+                    val blocked = name.lowercase()
+                    scope.launch {
+                        db?.logAdultBlock(blocked)
+                        showAdultBlockNotification(blocked)
+                    }
+                    DnsResolver.buildBlockResponse(dnsPacket.dnsPayload)
+                }
                 isHeuristicManga(name) -> {
                     scope.launch { db?.upsertDomain(name.lowercase(), HEURISTIC_CATEGORY) }
                     DnsResolver.buildBlockResponse(dnsPacket.dnsPayload)
                 }
-                else -> DnsResolver.forwardToUpstream(dnsPacket.dnsPayload)
-                    ?: DnsResolver.buildServfailResponse(dnsPacket.dnsPayload)
+                else -> DnsResolver.forwardToUpstream(
+                        dnsPacket.dnsPayload,
+                        listOf("1.1.1.3", "1.0.0.3"),
+                        "8.8.8.8"
+                    ) ?: DnsResolver.buildServfailResponse(dnsPacket.dnsPayload)
             }
 
             val responsePacket = buildIpUdpPacket(
@@ -143,7 +182,24 @@ class OrquestradorVpnService : VpnService() {
     private fun isBlockedDomain(domain: String): Boolean {
         val bare = domain.removePrefix("www.").lowercase()
         val category = allDomains[bare] ?: allDomains["www.$bare"] ?: return false
-        return category in enabledCategories.map { it.name }
+        return category == MANUAL_CATEGORY || category in enabledCategories.map { it.name }
+    }
+
+    private fun isAdultBlocked(domain: String): Boolean {
+        if (BlockList.Category.ADULT !in enabledCategories) return false
+        val lower = domain.lowercase()
+        // 1. TLD check — fastest, no memory needed
+        if (ADULT_TLDS.any { lower.endsWith(it) }) return true
+        // 2. Heuristic keyword match
+        if (ADULT_HEURISTIC_TERMS.any { lower.contains(it) }) return true
+        // 3. Static hardcoded list (pornhub, xvideos, etc.)
+        val bare = lower.removePrefix("www.")
+        val staticSet = BlockList.domains[BlockList.Category.ADULT]
+        if (staticSet != null && (bare in staticSet || "www.$bare" in staticSet)) return true
+        // 4. StevenBlack global cache
+        val cache = globalAdultCache
+        if (cache != null && (bare in cache || "www.$bare" in cache)) return true
+        return false
     }
 
     private fun isHeuristicManga(domain: String): Boolean {
@@ -153,8 +209,22 @@ class OrquestradorVpnService : VpnService() {
         return false
     }
 
+    private fun showAdultBlockNotification(domain: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastAdultNotifTime < 5_000) return
+        lastAdultNotifTime = now
+        val notification = Notification.Builder(this, CHANNEL_ADULT_BLOCK_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle("Acesso Restrito pelo Orquestrador")
+            .setContentText(domain)
+            .setAutoCancel(true)
+            .build()
+        getSystemService(NotificationManager::class.java)?.notify(NOTIF_ADULT_BLOCK_ID, notification)
+    }
+
     private fun stopVpn() {
         isRunning = false
+        globalAdultCache = null
         scope.cancel()
         tunFd?.close()
         tunFd = null
@@ -194,6 +264,13 @@ class OrquestradorVpnService : VpnService() {
         )
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL_ALERT_ID, "VPN Alertas", NotificationManager.IMPORTANCE_HIGH)
+        )
+        manager.createNotificationChannel(
+            NotificationChannel(
+                CHANNEL_ADULT_BLOCK_ID,
+                "Bloqueio Adulto",
+                NotificationManager.IMPORTANCE_DEFAULT,
+            )
         )
     }
 
