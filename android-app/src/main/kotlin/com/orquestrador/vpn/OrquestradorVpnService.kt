@@ -54,15 +54,15 @@ class OrquestradorVpnService : VpnService() {
     }
 
     private var tunFd: ParcelFileDescriptor? = null
-    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var enabledCategories: Set<BlockList.Category> = emptySet()
     private var allDomains: MutableMap<String, String> = mutableMapOf()
     private var db: BlockedDomainDatabase? = null
     private var globalAdultCache: HashSet<String>? = null
     private var lastAdultNotifTime = 0L
-    private var cloudflareEnabled: Boolean = true
-    private var currentUpstreams: List<String> = listOf("1.1.1.3", "1.0.0.3")
-    private var lastResortDns: String? = "8.8.8.8"
+    @Volatile private var cloudflareEnabled: Boolean = true
+    @Volatile private var currentUpstreams: List<String> = listOf("1.1.1.3", "1.0.0.3")
+    @Volatile private var lastResortDns: String? = "8.8.8.8"
 
     override fun onCreate() {
         super.onCreate()
@@ -114,6 +114,7 @@ class OrquestradorVpnService : VpnService() {
     }
 
     private fun startVpn() {
+        scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
         tunFd?.close()
         DnsResolver.clearCache()
 
