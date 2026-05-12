@@ -30,6 +30,7 @@ class OrquestradorVpnService : VpnService() {
         const val ACTION_ADD_MANUAL_BLOCK = "com.orquestrador.vpn.ADD_MANUAL_BLOCK"
         const val EXTRA_ENABLED_CATEGORIES = "enabled_categories"
         const val EXTRA_MANUAL_DOMAIN = "manual_domain"
+        const val EXTRA_CF_ENABLED = "cf_enabled"
         const val MANUAL_CATEGORY = "MANUAL"
         const val CHANNEL_ID = "vpn_service"
         const val CHANNEL_ALERT_ID = "vpn_alert"
@@ -39,7 +40,6 @@ class OrquestradorVpnService : VpnService() {
         const val NOTIF_ADULT_BLOCK_ID = 3
         @Volatile var isRunning: Boolean = false
         private const val VPN_ADDRESS = "10.0.0.2"
-        private const val FAKE_DNS_IP = "10.0.0.1"
         val MANGA_PATTERNS = listOf(
             "manga", "mangá", "manhwa", "manhua", "scan", "raws",
             "readmanga", "otaku", "chapmanganato"
@@ -60,6 +60,9 @@ class OrquestradorVpnService : VpnService() {
     private var db: BlockedDomainDatabase? = null
     private var globalAdultCache: HashSet<String>? = null
     private var lastAdultNotifTime = 0L
+    private var cloudflareEnabled: Boolean = true
+    private var currentUpstreams: List<String> = listOf("1.1.1.3", "1.0.0.3")
+    private var lastResortDns: String? = "8.8.8.8"
 
     override fun onCreate() {
         super.onCreate()
@@ -86,6 +89,7 @@ class OrquestradorVpnService : VpnService() {
             ?.mapNotNull { runCatching { BlockList.Category.valueOf(it) }.getOrNull() }
             ?.toSet() ?: emptySet()
         enabledCategories = cats
+        cloudflareEnabled = intent?.getBooleanExtra(EXTRA_CF_ENABLED, true) ?: true
 
         VpnPreferences(this).save(true, cats.map { it.name }.toSet())
 
@@ -111,17 +115,44 @@ class OrquestradorVpnService : VpnService() {
 
     private fun startVpn() {
         tunFd?.close()
-        tunFd = Builder()
+        DnsResolver.clearCache()
+
+        val builder = Builder()
             .setSession("Orquestrador VPN")
             .addAddress(VPN_ADDRESS, 24)
             .addRoute("0.0.0.0", 0)
-            .addDnsServer(FAKE_DNS_IP)
             .setBlocking(false)
-            .establish() ?: run {
+
+        if (cloudflareEnabled) {
+            builder
+                .addDnsServer("1.1.1.3")
+                .addDnsServer("1.0.0.3")
+                .addRoute("1.1.1.3", 32)
+                .addRoute("1.0.0.3", 32)
+            try {
+                builder
+                    .addDnsServer("2606:4700:4700::1113")
+                    .addDnsServer("2606:4700:4700::1003")
+                    .addRoute("::", 0)
+            } catch (_: Exception) { /* IPv6 not supported on device */ }
+            currentUpstreams = listOf("1.1.1.3", "1.0.0.3")
+            lastResortDns = "8.8.8.8"
+        } else {
+            builder
+                .addDnsServer("8.8.8.8")
+                .addDnsServer("8.8.4.4")
+                .addRoute("8.8.8.8", 32)
+                .addRoute("8.8.4.4", 32)
+            currentUpstreams = listOf("8.8.8.8", "8.8.4.4")
+            lastResortDns = null
+        }
+
+        tunFd = builder.establish() ?: run {
             stopSelf()
             return
         }
 
+        DnsResolver.setProtect { socket -> protect(socket) }
         scope.launch { runPacketLoop() }
     }
 
@@ -157,11 +188,13 @@ class OrquestradorVpnService : VpnService() {
                     scope.launch { db?.upsertDomain(name.lowercase(), HEURISTIC_CATEGORY) }
                     DnsResolver.buildBlockResponse(dnsPacket.dnsPayload)
                 }
-                else -> DnsResolver.forwardToUpstream(
-                        dnsPacket.dnsPayload,
-                        listOf("1.1.1.3", "1.0.0.3"),
-                        "8.8.8.8"
-                    ) ?: DnsResolver.buildServfailResponse(dnsPacket.dnsPayload)
+                else -> {
+                    val lowerName = name.lowercase()
+                    DnsResolver.getCached(lowerName)
+                        ?: DnsResolver.forwardToUpstream(dnsPacket.dnsPayload, currentUpstreams, lastResortDns)
+                            ?.also { DnsResolver.cache(lowerName, it) }
+                        ?: DnsResolver.buildServfailResponse(dnsPacket.dnsPayload)
+                }
             }
 
             val responsePacket = buildIpUdpPacket(
@@ -230,6 +263,8 @@ class OrquestradorVpnService : VpnService() {
         tunFd = null
         db?.close()
         db = null
+        DnsResolver.setProtect(null)
+        DnsResolver.clearCache()
         DnsResolver.closeSocket()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -246,6 +281,7 @@ class OrquestradorVpnService : VpnService() {
                     Intent(this, OrquestradorVpnService::class.java)
                         .setAction(ACTION_START)
                         .putExtra(EXTRA_ENABLED_CATEGORIES, prefs.getEnabledCategories().toTypedArray())
+                        .putExtra(EXTRA_CF_ENABLED, prefs.getCloudflareFamilyEnabled())
                 )
             }
         }

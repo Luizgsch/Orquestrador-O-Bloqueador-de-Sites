@@ -34,6 +34,10 @@ class VpnGuardWorker(
                     OrquestradorVpnService.EXTRA_ENABLED_CATEGORIES,
                     prefs.getEnabledCategories().toTypedArray()
                 )
+                .putExtra(
+                    OrquestradorVpnService.EXTRA_CF_ENABLED,
+                    prefs.getCloudflareFamilyEnabled()
+                )
         )
         return Result.success()
     }
