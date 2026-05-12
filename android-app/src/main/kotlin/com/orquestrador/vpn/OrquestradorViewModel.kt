@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Intent
 import android.net.VpnService
 import androidx.lifecycle.AndroidViewModel
+import com.orquestrador.db.BlockedDomainDatabase
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -13,6 +14,8 @@ data class VpnUiState(
     val socialEnabled: Boolean = true,
     val adultEnabled: Boolean = true,
     val mangaEnabled: Boolean = false,
+    val ublockEnabled: Boolean = false,
+    val cloudflareEnabled: Boolean = true,
     val needsVpnPermission: Boolean = false,
     val needsOverlayPermission: Boolean = false,
 )
@@ -25,15 +28,21 @@ class OrquestradorViewModel(app: Application) : AndroidViewModel(app) {
     init {
         val prefs = VpnPreferences(app)
         val savedCats = prefs.getEnabledCategories()
+        val cfEnabled = prefs.getCloudflareFamilyEnabled()
         if (savedCats.isNotEmpty()) {
             _state.value = _state.value.copy(
                 isVpnRunning = OrquestradorVpnService.isRunning,
                 socialEnabled = BlockList.Category.SOCIAL.name in savedCats,
                 adultEnabled = BlockList.Category.ADULT.name in savedCats,
                 mangaEnabled = BlockList.Category.MANGA.name in savedCats,
+                ublockEnabled = BlockList.Category.UBLOCK.name in savedCats,
+                cloudflareEnabled = cfEnabled,
             )
         } else {
-            _state.value = _state.value.copy(isVpnRunning = OrquestradorVpnService.isRunning)
+            _state.value = _state.value.copy(
+                isVpnRunning = OrquestradorVpnService.isRunning,
+                cloudflareEnabled = cfEnabled,
+            )
         }
     }
 
@@ -68,8 +77,31 @@ class OrquestradorViewModel(app: Application) : AndroidViewModel(app) {
             BlockList.Category.SOCIAL -> _state.value.copy(socialEnabled = enabled)
             BlockList.Category.ADULT -> _state.value.copy(adultEnabled = enabled)
             BlockList.Category.MANGA -> _state.value.copy(mangaEnabled = enabled)
+            BlockList.Category.UBLOCK -> _state.value.copy(ublockEnabled = enabled)
+        }
+        if (category == BlockList.Category.ADULT && enabled) {
+            AdultSyncWorker.schedule(getApplication())
         }
         if (_state.value.isVpnRunning) updateVpnCategories()
+    }
+
+    fun onCloudflareFamilyToggle(enabled: Boolean) {
+        _state.value = _state.value.copy(cloudflareEnabled = enabled)
+        VpnPreferences(getApplication()).saveCloudflareFamilyEnabled(enabled)
+        if (_state.value.isVpnRunning) updateVpnCategories()
+    }
+
+    fun addManualBlock(domain: String) {
+        val db = BlockedDomainDatabase(getApplication())
+        db.addManualBlock(domain)
+        db.close()
+        if (_state.value.isVpnRunning) {
+            getApplication<Application>().startService(
+                Intent(getApplication(), OrquestradorVpnService::class.java)
+                    .setAction(OrquestradorVpnService.ACTION_ADD_MANUAL_BLOCK)
+                    .putExtra(OrquestradorVpnService.EXTRA_MANUAL_DOMAIN, domain)
+            )
+        }
     }
 
     private fun startVpnService() {
@@ -95,9 +127,11 @@ class OrquestradorViewModel(app: Application) : AndroidViewModel(app) {
             if (_state.value.socialEnabled) add(BlockList.Category.SOCIAL.name)
             if (_state.value.adultEnabled) add(BlockList.Category.ADULT.name)
             if (_state.value.mangaEnabled) add(BlockList.Category.MANGA.name)
+            if (_state.value.ublockEnabled) add(BlockList.Category.UBLOCK.name)
         }.toTypedArray()
         return Intent(getApplication(), OrquestradorVpnService::class.java)
             .setAction(action)
             .putExtra(OrquestradorVpnService.EXTRA_ENABLED_CATEGORIES, cats)
+            .putExtra(OrquestradorVpnService.EXTRA_CF_ENABLED, _state.value.cloudflareEnabled)
     }
 }
