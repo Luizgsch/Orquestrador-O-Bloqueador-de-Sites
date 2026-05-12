@@ -26,12 +26,19 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Block
+import androidx.compose.material.icons.outlined.FilterList
 import androidx.compose.material.icons.outlined.Groups
 import androidx.compose.material.icons.outlined.MenuBook
 import androidx.compose.material.icons.outlined.Security
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.Shield
+import com.orquestrador.ui.theme.AccentCloudflare
 import androidx.compose.material.icons.outlined.Wifi
 import androidx.compose.material.icons.outlined.WifiOff
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -39,11 +46,14 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.Modifier
@@ -60,6 +70,7 @@ import androidx.compose.ui.unit.dp
 import com.orquestrador.ui.theme.AccentAdult
 import com.orquestrador.ui.theme.AccentManga
 import com.orquestrador.ui.theme.AccentSocial
+import com.orquestrador.ui.theme.AccentUBlock
 import com.orquestrador.ui.theme.CardBorderActive
 import com.orquestrador.ui.theme.CardBorderIdle
 import com.orquestrador.ui.theme.CardSurface
@@ -135,6 +146,11 @@ fun OrquestradorScreen(
             Icons.Outlined.MenuBook, AccentManga, state.mangaEnabled,
             com.orquestrador.vpn.BlockList.Category.MANGA
         ),
+        BlockModule(
+            "Filtros uBlock", "Anúncios, rastreadores e domínios maliciosos",
+            Icons.Outlined.FilterList, AccentUBlock, state.ublockEnabled,
+            com.orquestrador.vpn.BlockList.Category.UBLOCK
+        ),
     )
 
     Box(
@@ -166,6 +182,13 @@ fun OrquestradorScreen(
                 OverlayPermissionBanner(onGrant = onRequestOverlayPermission)
             }
 
+            SectionHeader(title = "PROTEÇÃO DE REDE")
+
+            CloudflareCard(
+                enabled = state.cloudflareEnabled,
+                onToggle = { enabled -> withPin(enabled) { viewModel.onCloudflareFamilyToggle(enabled) } },
+            )
+
             SectionHeader(title = "MÓDULOS DE BLOQUEIO")
 
             modules.forEach { module ->
@@ -175,6 +198,12 @@ fun OrquestradorScreen(
                         withPin(enabled) { viewModel.onCategoryToggle(module.category, enabled) }
                     },
                 )
+            }
+
+            SectionHeader(title = "BLOQUEIO MANUAL")
+
+            ManualBlockSection { domain ->
+                viewModel.addManualBlock(domain)
             }
 
             Spacer(Modifier.height(8.dp))
@@ -565,6 +594,83 @@ private fun ModuleCard(module: BlockModule, onToggle: (Boolean) -> Unit) {
 }
 
 // ─────────────────────────────────────────────
+// Cloudflare Family card
+// ─────────────────────────────────────────────
+
+@Composable
+private fun CloudflareCard(enabled: Boolean, onToggle: (Boolean) -> Unit) {
+    val accentAlpha by animateFloatAsState(
+        targetValue = if (enabled) 1f else 0.35f,
+        animationSpec = tween(400),
+        label = "cf_accent_alpha",
+    )
+    val borderColor by animateColorAsState(
+        targetValue = if (enabled) AccentCloudflare.copy(alpha = 0.45f) else CardBorderIdle,
+        animationSpec = tween(400),
+        label = "cf_border",
+    )
+
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(0.5.dp, borderColor, RoundedCornerShape(16.dp))
+            .background(CardSurface, RoundedCornerShape(16.dp))
+            .padding(16.dp),
+        horizontalArrangement = Arrangement.spacedBy(14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(42.dp)
+                .background(
+                    AccentCloudflare.copy(alpha = 0.08f + 0.10f * accentAlpha),
+                    RoundedCornerShape(11.dp),
+                )
+                .border(
+                    0.5.dp,
+                    AccentCloudflare.copy(alpha = 0.25f * accentAlpha),
+                    RoundedCornerShape(11.dp),
+                ),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Shield,
+                contentDescription = null,
+                tint = AccentCloudflare.copy(alpha = accentAlpha),
+                modifier = Modifier.size(20.dp),
+            )
+        }
+
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(3.dp),
+        ) {
+            Text(
+                text = "Proteção Familiar Cloudflare",
+                style = MaterialTheme.typography.titleMedium,
+                color = if (enabled) TextPrimary else TextSecondary,
+            )
+            Text(
+                text = "1.1.1.3 · Filtra adulto e malware",
+                style = MaterialTheme.typography.bodyMedium,
+                color = TextDim,
+            )
+        }
+
+        Switch(
+            checked = enabled,
+            onCheckedChange = onToggle,
+            colors = SwitchDefaults.colors(
+                checkedTrackColor = AccentCloudflare.copy(alpha = 0.65f),
+                checkedThumbColor = Color.White,
+                uncheckedTrackColor = SwitchTrackOff,
+                uncheckedThumbColor = TextDim,
+            ),
+        )
+    }
+}
+
+// ─────────────────────────────────────────────
 // Overlay permission banner
 // ─────────────────────────────────────────────
 
@@ -630,6 +736,82 @@ private fun SecurityNavButton(onClick: () -> Unit) {
         }
         TextButton(onClick = onClick) {
             Text("Configurar PIN", color = AccentSocial, style = MaterialTheme.typography.labelSmall)
+        }
+    }
+}
+
+// ─────────────────────────────────────────────
+// Manual block section
+// ─────────────────────────────────────────────
+
+@Composable
+private fun ManualBlockSection(onBlock: (String) -> Unit) {
+    var input by remember { mutableStateOf("") }
+    val trimmed = input.trim().lowercase()
+    val isValid = trimmed.isNotEmpty() && '.' in trimmed && ' ' !in trimmed && "://" !in trimmed
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .border(1.dp, CardBorderIdle, RoundedCornerShape(16.dp))
+            .background(CardSurface, RoundedCornerShape(16.dp))
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.Block,
+                contentDescription = null,
+                tint = StatusRed,
+                modifier = Modifier.size(18.dp),
+            )
+            Text(
+                text = "Bloquear Domínio",
+                style = MaterialTheme.typography.titleSmall,
+                color = TextPrimary,
+            )
+        }
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            TextField(
+                value = input,
+                onValueChange = { input = it },
+                modifier = Modifier.weight(1f),
+                placeholder = {
+                    Text("exemplo.com", color = TextDim, style = MaterialTheme.typography.bodySmall)
+                },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                keyboardActions = KeyboardActions(onDone = {
+                    if (isValid) { onBlock(trimmed); input = "" }
+                }),
+                colors = TextFieldDefaults.colors(
+                    focusedContainerColor = Color.Transparent,
+                    unfocusedContainerColor = Color.Transparent,
+                    focusedIndicatorColor = ElectricBlue,
+                    unfocusedIndicatorColor = CardBorderIdle,
+                    focusedTextColor = TextPrimary,
+                    unfocusedTextColor = TextPrimary,
+                    cursorColor = ElectricBlue,
+                ),
+                textStyle = MaterialTheme.typography.bodySmall,
+            )
+            Button(
+                onClick = { onBlock(trimmed); input = "" },
+                enabled = isValid,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = StatusRed,
+                    disabledContainerColor = SwitchTrackOff,
+                ),
+            ) {
+                Text("Bloquear", color = Color.White, style = MaterialTheme.typography.labelSmall)
+            }
         }
     }
 }
